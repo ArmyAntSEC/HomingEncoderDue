@@ -69,7 +69,7 @@ class HomingEncoder
     public:     
         static HomingEncoderState * stateList[MAX_ENCODERS_SUPPORTED];                
 
-        static template <int N> void init( unsigned int encoderPin1, unsigned int encoderPin2, unsigned int breakerPin )
+        template <int N> void init( unsigned int encoderPin1, unsigned int encoderPin2, unsigned int breakerPin )
         {
             pinMode(encoderPin1, INPUT_PULLUP);
             pinMode(encoderPin2, INPUT_PULLUP);
@@ -114,20 +114,18 @@ class HomingEncoder
             }
         }
 
-        static template<int N> int read()
+        int read()
         {             
-            int r;
-            HomingEncoderState * state = HomingEncoder::stateList[N];
-            
+            int r;                        
             noInterrupts();
-            r = state->position + state->offset;
+            r = state.position + state.offset;
             interrupts();
             return r;
         }
 
-        static template<int N> void setPositionOffset( int _offset )
+        void setPositionOffset( int _offset )
         {
-            HomingEncoder::stateList[N]->offset = _offset;
+            state.offset = _offset;
         }
 
     public:
