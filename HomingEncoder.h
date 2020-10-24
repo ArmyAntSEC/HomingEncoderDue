@@ -24,7 +24,6 @@
 #define _HOMINGENCODER_H_
 
 #include <Arduino.h>
-#include <Streaming.h>
 
 #define IO_REG_TYPE			uint32_t
 #define PIN_TO_BASEREG(pin)             (portInputRegister(digitalPinToPort(pin)))
@@ -36,8 +35,6 @@
 #define ENCODER_LEFT_PIN_1 2
 #define ENCODER_LEFT_PIN_2 3
 #define BREAKER_LEFT_PIN A0
-
-#define LOG Serial << "HomingEncoder: "
 
 struct HomingEncoderState {
     int encoderPin1;
@@ -60,17 +57,19 @@ struct HomingEncoderState {
     int count_encoder;
     int count_homing;  
     int last_count_at_homing;  
+
+    int offset;
 };
 
 class HomingEncoder
 {
     private:
-        HomingEncoderState state;
-    
-    public:     
-        static HomingEncoderState * stateList[MAX_ENCODERS_SUPPORTED];        
+        HomingEncoderState state;        
 
-        template <int N> void init( unsigned int encoderPin1, unsigned int encoderPin2, unsigned int breakerPin )
+    public:     
+        static HomingEncoderState * stateList[MAX_ENCODERS_SUPPORTED];                
+
+        static template <int N> void init( unsigned int encoderPin1, unsigned int encoderPin2, unsigned int breakerPin )
         {
             pinMode(encoderPin1, INPUT_PULLUP);
             pinMode(encoderPin2, INPUT_PULLUP);
@@ -84,6 +83,7 @@ class HomingEncoder
             state.last_count_at_homing = 0;
             state.position = 0;
             state.moving_forward = true;
+            state.offset = 0;
 
             state.encoderPin1_register = PIN_TO_BASEREG(encoderPin1);
             state.encoderPin2_register = PIN_TO_BASEREG(encoderPin2);
@@ -102,13 +102,9 @@ class HomingEncoder
 		    if (DIRECT_PIN_READ(state.encoderPin1_register, state.encoderPin1_bitmask)) s |= 1;
 		    if (DIRECT_PIN_READ(state.encoderPin1_register, state.encoderPin1_bitmask)) s |= 2;
 		    
-            state.encoder_state = s;
+            state.encoder_state = s;            
 
-            LOG << "Starting encoder state: " << state.encoder_state << endl;
-
-            if ( N >= MAX_ENCODERS_SUPPORTED ) {
-                LOG << "ERROR: More encoders registered than are supported." << endl;
-            } else {
+            if ( N < MAX_ENCODERS_SUPPORTED ) {                            
                 stateList[N] = &state;
                 
                 attachInterrupt(digitalPinToInterrupt(encoderPin1), isr_encoder<N>, CHANGE );
@@ -118,16 +114,23 @@ class HomingEncoder
             }
         }
 
-        void printStatus()        
-        {
-            LOG << " Position: " << stateList[0]->position <<    
-                " Count Encoder: " << stateList[0]->count_encoder << 
-                " Count Homing: " << stateList[0]->count_homing << 
-                " Count at last homing: " << stateList[0]->last_count_at_homing << 
-                " Direction: " << stateList[0]->moving_forward <<                 
-                endl;                
+        static template<int N> int read()
+        {             
+            int r;
+            HomingEncoderState * state = HomingEncoder::stateList[N];
+            
+            noInterrupts();
+            r = state->position + state->offset;
+            interrupts();
+            return r;
         }
-    
+
+        static template<int N> void setPositionOffset( int _offset )
+        {
+            HomingEncoder::stateList[N]->offset = _offset;
+        }
+
+    public:
         template<int N> static void isr_encoder(void) 
         {
             HomingEncoderState * state = stateList[N];
@@ -180,6 +183,8 @@ class HomingEncoder
                 state->position = 0;
             }            
         }
+
+
 };
 
 #endif
