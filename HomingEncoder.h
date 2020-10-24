@@ -53,10 +53,8 @@ struct HomingEncoderState {
     bool moving_forward;
 
     long int position;
-
-    int count_encoder;
-    int count_homing;  
-    int last_count_at_homing;  
+    
+    bool is_homed;
 
     int offset;
 };
@@ -78,11 +76,9 @@ class HomingEncoder
             state.encoderPin1 = encoderPin1;
             state.encoderPin2 = encoderPin2;
             state.breakerPin = breakerPin;
-            state.count_encoder = 0;
-            state.count_homing = 0;    
-            state.last_count_at_homing = 0;
             state.position = 0;
             state.moving_forward = true;
+            state.is_homed = false;
             state.offset = 0;
 
             state.encoderPin1_register = PIN_TO_BASEREG(encoderPin1);
@@ -128,6 +124,15 @@ class HomingEncoder
             state.offset = _offset;
         }
 
+        bool isHomed() 
+        {
+            bool is_homed;
+            noInterrupts();
+            is_homed = state.is_homed;
+            interrupts();
+            return is_homed;
+        }
+
     public:
         template<int N> static void isr_encoder(void) 
         {
@@ -142,9 +147,7 @@ class HomingEncoder
 		    if (p1val) encoder_state |= 4;
 		    if (p2val) encoder_state |= 8;
 		    state->encoder_state = (encoder_state >> 2);
-
-            state->count_encoder++;
-
+            
             switch (encoder_state) {
                 case 1: case 7: case 8: case 14:
                     state->position--;
@@ -174,10 +177,8 @@ class HomingEncoder
                     
             //Depending on direction, we will trigger either on rising or falling. 
             //We want to make sure we allways trigger on the same edge regardless of direction
-            if ( state->moving_forward ^ breaker_val ) {
-                state->count_homing++;            
-                state->last_count_at_homing = state->count_encoder;
-                state->count_encoder = 0;
+            if ( state->moving_forward ^ breaker_val ) {                                
+                state->is_homed = true;
                 state->position = 0;
             }            
         }
