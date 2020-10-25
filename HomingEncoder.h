@@ -52,8 +52,9 @@ struct HomingEncoderState {
 	uint8_t                encoder_state;
     bool moving_forward;
 
-    long int position;
-    
+    int position;
+    int rotations;
+
     bool is_homed;
 
     int offset;
@@ -77,6 +78,7 @@ class HomingEncoder
             state.encoderPin2 = encoderPin2;
             state.breakerPin = breakerPin;
             state.position = 0;
+            state.rotations = 0;
             state.moving_forward = true;
             state.is_homed = false;
             state.offset = 0;
@@ -133,6 +135,15 @@ class HomingEncoder
             return is_homed;
         }
 
+        int getRotations()
+        {
+            int rotations;
+            noInterrupts();
+            rotations = state.rotations;
+            interrupts();
+            return rotations;
+        }
+
     public:
         template<int N> static void isr_encoder(void) 
         {
@@ -180,6 +191,10 @@ class HomingEncoder
             if ( state->moving_forward ^ breaker_val ) {                                
                 state->is_homed = true;
                 state->position = 0;
+                if ( state->moving_forward )
+                    state->rotations++;
+                else
+                    state->rotations--;
             }            
         }
 
