@@ -116,14 +116,18 @@ class HomingEncoder
         {             
             int r;                        
             noInterrupts();
-            r = state.position + state.offset;
+            r = state.position;
             interrupts();
             return r;
         }
 
         void setPositionOffset( int _offset )
-        {
+        {            
+            noInterrupts();
+            state.position = state.position + state.offset - _offset;
             state.offset = _offset;
+            interrupts();
+            
         }
 
         bool isHomed() 
@@ -190,7 +194,7 @@ class HomingEncoder
             //We want to make sure we allways trigger on the same edge regardless of direction
             if ( state->moving_forward ^ breaker_val ) {                                
                 state->is_homed = true;
-                state->position = 0;
+                state->position = -state->offset;
                 if ( state->moving_forward )
                     state->rotations++;
                 else
