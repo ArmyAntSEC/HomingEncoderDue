@@ -107,7 +107,7 @@ class HomingEncoder
                 
                 attachInterrupt(digitalPinToInterrupt(encoderPin1), isr_encoder<N>, CHANGE );
                 attachInterrupt(digitalPinToInterrupt(encoderPin2), isr_encoder<N>, CHANGE );
-                attachInterrupt(digitalPinToInterrupt(breakerPin), isr_homing<N>, CHANGE );                     
+                attachInterrupt(digitalPinToInterrupt(breakerPin), isr_homing<N>, FALLING );                     
 
             }
         }
@@ -128,6 +128,13 @@ class HomingEncoder
             state.offset = _offset;
             interrupts();
             
+        }
+
+        void unHome()
+        {
+            noInterrupts();
+            state.is_homed = false;
+            interrupts();
         }
 
         bool isHomed() 
