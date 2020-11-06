@@ -56,6 +56,9 @@ struct HomingEncoderState {
     int rotations;
 
     bool is_homed;
+    float homing_value_filtered;
+
+    int pos_at_last_home;
 
     int offset;
 };
@@ -81,7 +84,8 @@ class HomingEncoder
             state.rotations = 0;
             state.moving_forward = true;
             state.is_homed = false;
-            state.offset = 0;
+            state.pos_at_last_home = 0;
+            state.homing_value_filtered = 0;
 
             state.encoderPin1_register = PIN_TO_BASEREG(encoderPin1);
             state.encoderPin2_register = PIN_TO_BASEREG(encoderPin2);
@@ -121,19 +125,11 @@ class HomingEncoder
             return r;
         }
 
-        void setPositionOffset( int _offset )
-        {            
-            noInterrupts();
-            state.position = state.position + state.offset - _offset;
-            state.offset = _offset;
-            interrupts();
-            
-        }
-
         void unHome()
         {
             noInterrupts();
             state.is_homed = false;
+            state.pos_at_last_home = 0;
             interrupts();
         }
 
@@ -153,6 +149,15 @@ class HomingEncoder
             rotations = state.rotations;
             interrupts();
             return rotations;
+        }
+
+        int getPosAtLastHome()
+        {
+            int rValue = 0;
+            noInterrupts();
+            rValue = state.pos_at_last_home;
+            interrupts();
+            return rValue;
         }
 
     public:
@@ -195,13 +200,14 @@ class HomingEncoder
             HomingEncoderState * state = stateList[N];
             
             uint8_t breaker_val = DIRECT_PIN_READ(state->breakerPin_register, 
-                state->breakerPin_bitmask );                  
-                    
+                state->breakerPin_bitmask );                           
+
             //Depending on direction, we will trigger either on rising or falling. 
             //We want to make sure we allways trigger on the same edge regardless of direction
             if ( state->moving_forward ^ breaker_val ) {                                
                 state->is_homed = true;
-                state->position = -state->offset;
+                state->pos_at_last_home = state->position;
+                state->position = 0;
                 if ( state->moving_forward )
                     state->rotations++;
                 else
