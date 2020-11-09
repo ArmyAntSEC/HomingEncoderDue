@@ -61,6 +61,9 @@ struct HomingEncoderState {
     int pos_at_last_home;
 
     int offset;
+
+    unsigned int output_pin;
+    bool toggle;    
 };
 
 class HomingEncoder
@@ -71,7 +74,9 @@ class HomingEncoder
     public:     
         static HomingEncoderState * stateList[MAX_ENCODERS_SUPPORTED];                
 
-        template <int N> void init( unsigned int encoderPin1, unsigned int encoderPin2, unsigned int breakerPin )
+        template <int N> void init( unsigned int encoderPin1, 
+            unsigned int encoderPin2, unsigned int breakerPin,
+            unsigned int outputPin, int offset )
         {
             pinMode(encoderPin1, INPUT_PULLUP);
             pinMode(encoderPin2, INPUT_PULLUP);
@@ -94,6 +99,12 @@ class HomingEncoder
             state.encoderPin1_bitmask = PIN_TO_BITMASK(encoderPin1);
             state.encoderPin2_bitmask = PIN_TO_BITMASK(encoderPin2);
             state.breakerPin_bitmask = PIN_TO_BITMASK(breakerPin);
+
+            state.output_pin = outputPin;
+
+            pinMode( outputPin, OUTPUT );
+
+            state.offset = offset;
 
             // allow time for a passive R-C filter to charge
 		    // through the pullup resistors, before reading
@@ -120,7 +131,7 @@ class HomingEncoder
         {             
             int r;                        
             noInterrupts();
-            r = state.position;
+            r = state.position + state.offset;
             interrupts();
             return r;
         }
@@ -201,6 +212,9 @@ class HomingEncoder
             
             uint8_t breaker_val = DIRECT_PIN_READ(state->breakerPin_register, 
                 state->breakerPin_bitmask );                           
+
+            digitalWrite( state->output_pin, state->toggle );
+            state->toggle = !state->toggle;
 
             //Depending on direction, we will trigger either on rising or falling. 
             //We want to make sure we allways trigger on the same edge regardless of direction
