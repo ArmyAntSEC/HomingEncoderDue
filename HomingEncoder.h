@@ -122,7 +122,7 @@ class HomingEncoder
                 
                 attachInterrupt(digitalPinToInterrupt(encoderPin1), isr_encoder<N>, CHANGE );
                 attachInterrupt(digitalPinToInterrupt(encoderPin2), isr_encoder<N>, CHANGE );
-                attachInterrupt(digitalPinToInterrupt(breakerPin), isr_homing<N>, FALLING );                     
+                attachInterrupt(digitalPinToInterrupt(breakerPin), isr_homing<N>, CHANGE );                     
 
             }
         }
