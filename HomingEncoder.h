@@ -127,7 +127,7 @@ class HomingEncoder
             }
         }
 
-        int read()
+        int readCompensated()
         {             
             int r;                        
             noInterrupts();
@@ -218,7 +218,7 @@ class HomingEncoder
 
             //Depending on direction, we will trigger either on rising or falling. 
             //We want to make sure we allways trigger on the same edge regardless of direction
-            if ( state->moving_forward ^ breaker_val ) {                                
+            if ( abs(state->position) > 2500 && state->moving_forward ^ breaker_val ) {                                
                 state->is_homed = true;
                 state->pos_at_last_home = state->position;
                 state->position = 0;
