@@ -25,16 +25,17 @@
 
 #include <Arduino.h>
 
-#define IO_REG_TYPE			uint32_t
+#if defined(ARDUINO_SAM_DUE)
+  #define IO_REG_TYPE			uint32_t
+#elif defined(ARDUINO_AVR_UNO)
+  #define IO_REG_TYPE			uint8_t
+#endif
+
 #define PIN_TO_BASEREG(pin)             (portInputRegister(digitalPinToPort(pin)))
 #define PIN_TO_BITMASK(pin)             (digitalPinToBitMask(pin))
 #define DIRECT_PIN_READ(base, mask)     (((*(base)) & (mask)) ? 1 : 0)
 
 #define MAX_ENCODERS_SUPPORTED 6
-
-#define ENCODER_LEFT_PIN_1 2
-#define ENCODER_LEFT_PIN_2 3
-#define BREAKER_LEFT_PIN A0
 
 struct HomingEncoderState {
     int encoderPin1;
@@ -42,14 +43,14 @@ struct HomingEncoderState {
     int breakerPin;
 
     volatile IO_REG_TYPE * encoderPin1_register;
-	volatile IO_REG_TYPE * encoderPin2_register;
+  	volatile IO_REG_TYPE * encoderPin2_register;
     volatile IO_REG_TYPE * breakerPin_register;
 
-	IO_REG_TYPE            encoderPin1_bitmask;
-	IO_REG_TYPE            encoderPin2_bitmask;
+	  IO_REG_TYPE            encoderPin1_bitmask;
+	  IO_REG_TYPE            encoderPin2_bitmask;
     IO_REG_TYPE            breakerPin_bitmask;
 
-	uint8_t                encoder_state;
+	  uint8_t                encoder_state;
     bool moving_forward;
 
     int position;
@@ -61,9 +62,6 @@ struct HomingEncoderState {
     int pos_at_last_home;
 
     int offset;
-
-    unsigned int output_pin;
-    bool toggle;    
 };
 
 class HomingEncoder
@@ -76,7 +74,7 @@ class HomingEncoder
 
         template <int N> void init( unsigned int encoderPin1, 
             unsigned int encoderPin2, unsigned int breakerPin,
-            unsigned int outputPin, int offset )
+            int offset )
         {
             pinMode(encoderPin1, INPUT_PULLUP);
             pinMode(encoderPin2, INPUT_PULLUP);
@@ -99,10 +97,6 @@ class HomingEncoder
             state.encoderPin1_bitmask = PIN_TO_BITMASK(encoderPin1);
             state.encoderPin2_bitmask = PIN_TO_BITMASK(encoderPin2);
             state.breakerPin_bitmask = PIN_TO_BITMASK(breakerPin);
-
-            state.output_pin = outputPin;
-
-            pinMode( outputPin, OUTPUT );
 
             state.offset = offset;
 
@@ -212,9 +206,6 @@ class HomingEncoder
             
             uint8_t breaker_val = DIRECT_PIN_READ(state->breakerPin_register, 
                 state->breakerPin_bitmask );                           
-
-            digitalWrite( state->output_pin, state->toggle );
-            state->toggle = !state->toggle;
 
             //Depending on direction, we will trigger either on rising or falling. 
             //We want to make sure we allways trigger on the same edge regardless of direction
