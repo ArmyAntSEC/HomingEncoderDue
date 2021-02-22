@@ -38,189 +38,205 @@
 #define MAX_ENCODERS_SUPPORTED 6
 
 struct HomingEncoderState {
-    int encoderPin1;
-    int encoderPin2;
-    int breakerPin;
+  int encoderPin1;
+  int encoderPin2;
+  int breakerPin;
+  
+  volatile IO_REG_TYPE * encoderPin1_register;
+  volatile IO_REG_TYPE * encoderPin2_register;
+  volatile IO_REG_TYPE * breakerPin_register;
+  
+  IO_REG_TYPE            encoderPin1_bitmask;
+  IO_REG_TYPE            encoderPin2_bitmask;
+  IO_REG_TYPE            breakerPin_bitmask;
+  
+  uint8_t                encoder_state;
+  bool moving_forward;
+  
+  int position;
+  int rotations;
+  
+  bool is_homed;
+  float homing_value_filtered;
+  
+  int pos_at_last_home;
+  
+  int offset;
 
-    volatile IO_REG_TYPE * encoderPin1_register;
-  	volatile IO_REG_TYPE * encoderPin2_register;
-    volatile IO_REG_TYPE * breakerPin_register;
-
-	  IO_REG_TYPE            encoderPin1_bitmask;
-	  IO_REG_TYPE            encoderPin2_bitmask;
-    IO_REG_TYPE            breakerPin_bitmask;
-
-	  uint8_t                encoder_state;
-    bool moving_forward;
-
-    int position;
-    int rotations;
-
-    bool is_homed;
-    float homing_value_filtered;
-
-    int pos_at_last_home;
-
-    int offset;
+#if defined (ARDUINO_AVR_UNO)
+  uint8_t homing_pin_last_value; //Only used for Uno to software emulate the homing pin interrupt
+#endif
 };
 
 class HomingEncoder
 {
-    private:
-        HomingEncoderState state;        
+private:
+  HomingEncoderState state;        
+  
+public:     
+  static HomingEncoderState * stateList[MAX_ENCODERS_SUPPORTED];                
+  
+  template <int N> void init( unsigned int encoderPin1, 
+			      unsigned int encoderPin2, unsigned int breakerPin,
+			      int offset ) {
+    pinMode(encoderPin1, INPUT_PULLUP);
+    pinMode(encoderPin2, INPUT_PULLUP);
+    pinMode(breakerPin, INPUT_PULLUP);
+    
+    state.encoderPin1 = encoderPin1;
+    state.encoderPin2 = encoderPin2;
+    state.breakerPin = breakerPin;
+    state.position = 0;
+    state.rotations = 0;
+    state.moving_forward = true;
+    state.is_homed = false;
+    state.pos_at_last_home = 0;
+    state.homing_value_filtered = 0;
+    
+    state.encoderPin1_register = PIN_TO_BASEREG(encoderPin1);
+    state.encoderPin2_register = PIN_TO_BASEREG(encoderPin2);
+    state.breakerPin_register = PIN_TO_BASEREG(breakerPin);
+    
+    state.encoderPin1_bitmask = PIN_TO_BITMASK(encoderPin1);
+    state.encoderPin2_bitmask = PIN_TO_BITMASK(encoderPin2);
+    state.breakerPin_bitmask = PIN_TO_BITMASK(breakerPin);
+    
+    state.offset = offset;
+    
+    // allow time for a passive R-C filter to charge
+    // through the pullup resistors, before reading
+    // the initial state
+    delayMicroseconds(2000);
+    
+    uint8_t s = 0;
+    if (DIRECT_PIN_READ(state.encoderPin1_register, state.encoderPin1_bitmask)) s |= 1;
+    if (DIRECT_PIN_READ(state.encoderPin1_register, state.encoderPin1_bitmask)) s |= 2;
 
-    public:     
-        static HomingEncoderState * stateList[MAX_ENCODERS_SUPPORTED];                
+#if defined (ARDUINO_AVR_UNO)
+    state.homing_pin_last_value = DIRECT_PIN_READ(state.breakerPin_register, state.breakerPin_bitmask);
+#endif
+													 
+												       
+    state.encoder_state = s;            
+    
+    if ( N < MAX_ENCODERS_SUPPORTED ) {                            
+      stateList[N] = &state;
+      
+      attachInterrupt(digitalPinToInterrupt(encoderPin1), isr_encoder<N>, CHANGE );
+      attachInterrupt(digitalPinToInterrupt(encoderPin2), isr_encoder<N>, CHANGE );
+#if defined(ARDUINO_SAM_DUE)
+      attachInterrupt(digitalPinToInterrupt(breakerPin), isr_homing<N>, CHANGE );                     
+#endif      
+    }
+  }
 
-        template <int N> void init( unsigned int encoderPin1, 
-            unsigned int encoderPin2, unsigned int breakerPin,
-            int offset )
-        {
-            pinMode(encoderPin1, INPUT_PULLUP);
-            pinMode(encoderPin2, INPUT_PULLUP);
-            pinMode(breakerPin, INPUT_PULLUP);
+  int readCompensated()
+    {             
+      int r;                        
+      noInterrupts();
+      r = state.position + state.offset;
+      interrupts();
+      return r;
+    }
+  
+  void unHome()
+    {
+      noInterrupts();
+      state.is_homed = false;
+      state.pos_at_last_home = 0;
+      interrupts();
+    }
+  
+  bool isHomed() 
+    {
+      bool is_homed;
+      noInterrupts();
+      is_homed = state.is_homed;
+      interrupts();
+      return is_homed;
+    }
+  
+  int getRotations()
+    {
+      int rotations;
+      noInterrupts();
+      rotations = state.rotations;
+      interrupts();
+      return rotations;
+    }
+  
+  int getPosAtLastHome()
+    {
+      int rValue = 0;
+      noInterrupts();
+      rValue = state.pos_at_last_home;
+      interrupts();
+      return rValue;
+    }
+  
+public:
+  template<int N> static void isr_encoder(void) 
+    {
+      HomingEncoderState * state = stateList[N];
+      
+      uint8_t p1val = DIRECT_PIN_READ(state->encoderPin1_register, 
+				      state->encoderPin1_bitmask );
+      uint8_t p2val = DIRECT_PIN_READ(state->encoderPin2_register,
+				      state->encoderPin2_bitmask );
+      
+      uint8_t encoder_state = state->encoder_state & 3;
+      if (p1val) encoder_state |= 4;
+      if (p2val) encoder_state |= 8;
+      state->encoder_state = (encoder_state >> 2);
+      
+      switch (encoder_state) {
+      case 1: case 7: case 8: case 14:
+	state->position--;
+	state->moving_forward = false;
+	break;
+      case 2: case 4: case 11: case 13:
+	state->position++;
+	state->moving_forward = true;
+	break;
+      case 3: case 12:
+	state->position -= 2;
+	state->moving_forward = false;
+	break;
+      case 6: case 9:
+	state->position += 2;
+	state->moving_forward = true;
+	break;
+      }                                    
+    }
+  
+  template<int N> static void isr_homing(void) 
+    { 
+      HomingEncoderState * state = stateList[N];
+      
+      uint8_t breaker_val = DIRECT_PIN_READ(state->breakerPin_register, 
+					    state->breakerPin_bitmask );                           
+#if defined (ARDUINO_AVR_UNO)
+      //A bit of an ugly hack, but it allows u to call this function as often as we want on the Uno, but it only
+      //does anything if the breaker has actually toggled
 
-            state.encoderPin1 = encoderPin1;
-            state.encoderPin2 = encoderPin2;
-            state.breakerPin = breakerPin;
-            state.position = 0;
-            state.rotations = 0;
-            state.moving_forward = true;
-            state.is_homed = false;
-            state.pos_at_last_home = 0;
-            state.homing_value_filtered = 0;
-
-            state.encoderPin1_register = PIN_TO_BASEREG(encoderPin1);
-            state.encoderPin2_register = PIN_TO_BASEREG(encoderPin2);
-            state.breakerPin_register = PIN_TO_BASEREG(breakerPin);
-
-            state.encoderPin1_bitmask = PIN_TO_BITMASK(encoderPin1);
-            state.encoderPin2_bitmask = PIN_TO_BITMASK(encoderPin2);
-            state.breakerPin_bitmask = PIN_TO_BITMASK(breakerPin);
-
-            state.offset = offset;
-
-            // allow time for a passive R-C filter to charge
-		    // through the pullup resistors, before reading
-		    // the initial state
-		    delayMicroseconds(2000);
-
-            uint8_t s = 0;
-		    if (DIRECT_PIN_READ(state.encoderPin1_register, state.encoderPin1_bitmask)) s |= 1;
-		    if (DIRECT_PIN_READ(state.encoderPin1_register, state.encoderPin1_bitmask)) s |= 2;
-		    
-            state.encoder_state = s;            
-
-            if ( N < MAX_ENCODERS_SUPPORTED ) {                            
-                stateList[N] = &state;
-                
-                attachInterrupt(digitalPinToInterrupt(encoderPin1), isr_encoder<N>, CHANGE );
-                attachInterrupt(digitalPinToInterrupt(encoderPin2), isr_encoder<N>, CHANGE );
-                attachInterrupt(digitalPinToInterrupt(breakerPin), isr_homing<N>, CHANGE );                     
-
-            }
-        }
-
-        int readCompensated()
-        {             
-            int r;                        
-            noInterrupts();
-            r = state.position + state.offset;
-            interrupts();
-            return r;
-        }
-
-        void unHome()
-        {
-            noInterrupts();
-            state.is_homed = false;
-            state.pos_at_last_home = 0;
-            interrupts();
-        }
-
-        bool isHomed() 
-        {
-            bool is_homed;
-            noInterrupts();
-            is_homed = state.is_homed;
-            interrupts();
-            return is_homed;
-        }
-
-        int getRotations()
-        {
-            int rotations;
-            noInterrupts();
-            rotations = state.rotations;
-            interrupts();
-            return rotations;
-        }
-
-        int getPosAtLastHome()
-        {
-            int rValue = 0;
-            noInterrupts();
-            rValue = state.pos_at_last_home;
-            interrupts();
-            return rValue;
-        }
-
-    public:
-        template<int N> static void isr_encoder(void) 
-        {
-            HomingEncoderState * state = stateList[N];
-
-            uint8_t p1val = DIRECT_PIN_READ(state->encoderPin1_register, 
-                state->encoderPin1_bitmask );
-		    uint8_t p2val = DIRECT_PIN_READ(state->encoderPin2_register,
-                state->encoderPin2_bitmask );
-		    
-            uint8_t encoder_state = state->encoder_state & 3;
-		    if (p1val) encoder_state |= 4;
-		    if (p2val) encoder_state |= 8;
-		    state->encoder_state = (encoder_state >> 2);
-            
-            switch (encoder_state) {
-                case 1: case 7: case 8: case 14:
-                    state->position--;
-                    state->moving_forward = false;
-                    break;
-                case 2: case 4: case 11: case 13:
-                    state->position++;
-                    state->moving_forward = true;
-                    break;
-                case 3: case 12:
-                    state->position -= 2;
-                    state->moving_forward = false;
-                    break;
-                case 6: case 9:
-                    state->position += 2;
-                    state->moving_forward = true;
-                    break;
-            }                                    
-        }
-
-        template<int N> static void isr_homing(void) 
-        { 
-            HomingEncoderState * state = stateList[N];
-            
-            uint8_t breaker_val = DIRECT_PIN_READ(state->breakerPin_register, 
-                state->breakerPin_bitmask );                           
-
-            //Depending on direction, we will trigger either on rising or falling. 
-            //We want to make sure we allways trigger on the same edge regardless of direction
-            if ( abs(state->position) > 2500 && state->moving_forward ^ breaker_val ) {                                
-                state->is_homed = true;
-                state->pos_at_last_home = state->position;
-                state->position = 0;
-                if ( state->moving_forward )
-                    state->rotations++;
-                else
-                    state->rotations--;
-            }            
-        }
-
-
+      if ( breaker_val == state->homing_pin_last_value )
+	return;
+      else
+	state->homing_pin_last_value = breaker_val;
+#endif
+      
+      //Depending on direction, we will trigger either on rising or falling. 
+      //We want to make sure we allways trigger on the same edge regardless of direction
+      if ( abs(state->position) > 2500 && state->moving_forward ^ breaker_val ) {                                
+	state->is_homed = true;
+	state->pos_at_last_home = state->position;
+	state->position = 0;
+	if ( state->moving_forward )
+	  state->rotations++;
+	else
+	  state->rotations--;
+      }            
+    }
 };
 
 #endif
