@@ -73,7 +73,12 @@ class HomingEncoder
 private:
   HomingEncoderState state;        
   
-public:     
+public:
+  static int clicksPerRevolution()
+  {
+    return 3592;
+  }
+
   static HomingEncoderState * stateList[MAX_ENCODERS_SUPPORTED];                
   
   template <int N> void init( unsigned int encoderPin1, 
